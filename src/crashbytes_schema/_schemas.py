@@ -7,8 +7,17 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from crashbytes_schema._errors import ParseResult, SchemaError, ValidationError
+
+# Label: letters/digits, inner hyphens allowed, no leading/trailing hyphen,
+# no empty labels (which also rules out consecutive dots like "a..b").
+_LABEL_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
+_EMAIL_RE = re.compile(
+    r"^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+    r"@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
+)
 
 # ---------------------------------------------------------------------------
 # Base
@@ -70,6 +79,14 @@ class Schema(ABC):
             return ParseResult(success=False, data=None, errors=errors)
         return ParseResult(success=True, data=data, errors=[])
 
+    def is_valid(self, data: object) -> bool:
+        """Return True if data validates against this schema, False otherwise."""
+        return not self._full_validate(data, "")
+
+    def __repr__(self) -> str:
+        rules = ", ".join(f"<{rule.name}>" for rule in self._rules)
+        return f"<{type(self).__name__} rules=[{rules}]>"
+
 
 # ---------------------------------------------------------------------------
 # String
@@ -85,6 +102,8 @@ class StringSchema(Schema):
         return []
 
     def min(self, n: int) -> StringSchema:
+        """Require the string to be at least ``n`` characters long."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, str)
             if len(data) < n:
@@ -100,6 +119,8 @@ class StringSchema(Schema):
         return self._add_rule("min", check)  # type: ignore[return-value]
 
     def max(self, n: int) -> StringSchema:
+        """Require the string to be at most ``n`` characters long."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, str)
             if len(data) > n:
@@ -114,7 +135,25 @@ class StringSchema(Schema):
 
         return self._add_rule("max", check)  # type: ignore[return-value]
 
+    def length(self, n: int) -> StringSchema:
+        """Require the string to be exactly ``n`` characters long."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, str)
+            if len(data) != n:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"String must be exactly {n} characters",
+                        code="invalid_length",
+                    )
+                ]
+            return []
+
+        return self._add_rule("length", check)  # type: ignore[return-value]
+
     def regex(self, pattern: str) -> StringSchema:
+        """Require the string to match a regular expression (search semantics)."""
         compiled = re.compile(pattern)
 
         def check(data: object, path: str) -> list[ValidationError]:
@@ -132,11 +171,11 @@ class StringSchema(Schema):
         return self._add_rule("regex", check)  # type: ignore[return-value]
 
     def email(self) -> StringSchema:
-        email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+        """Require a syntactically valid email address."""
 
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, str)
-            if not email_re.match(data):
+            if not _EMAIL_RE.fullmatch(data):
                 return [
                     ValidationError(
                         path=path, message="Invalid email address", code="invalid_string"
@@ -147,17 +186,38 @@ class StringSchema(Schema):
         return self._add_rule("email", check)  # type: ignore[return-value]
 
     def url(self) -> StringSchema:
-        url_re = re.compile(r"^https?://[^\s/$.?#].[^\s]*$")
+        """Require a valid http(s) URL with a well-formed hostname."""
 
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, str)
-            if not url_re.match(data):
+            try:
+                parts = urlsplit(data)
+            except ValueError:
+                parts = None
+            if (
+                parts is None
+                or parts.scheme not in ("http", "https")
+                or not parts.netloc
+                or parts.hostname is None
+                or not parts.hostname
+            ):
+                return [ValidationError(path=path, message="Invalid URL", code="invalid_string")]
+
+            hostname = parts.hostname
+            if hostname == "localhost":
+                return []
+
+            labels = hostname.rstrip(".").split(".")
+            # Dotted hostname or IPv4 literal: every label must be well-formed.
+            if len(labels) < 2 or any(not _LABEL_RE.fullmatch(label) for label in labels):
                 return [ValidationError(path=path, message="Invalid URL", code="invalid_string")]
             return []
 
         return self._add_rule("url", check)  # type: ignore[return-value]
 
     def nonempty(self) -> StringSchema:
+        """Require the string to be non-empty."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, str)
             if len(data) == 0:
@@ -169,6 +229,57 @@ class StringSchema(Schema):
             return []
 
         return self._add_rule("nonempty", check)  # type: ignore[return-value]
+
+    def startswith(self, prefix: str) -> StringSchema:
+        """Require the string to start with ``prefix``."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, str)
+            if not data.startswith(prefix):
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"String must start with {prefix!r}",
+                        code="invalid_string",
+                    )
+                ]
+            return []
+
+        return self._add_rule("startswith", check)  # type: ignore[return-value]
+
+    def endswith(self, suffix: str) -> StringSchema:
+        """Require the string to end with ``suffix``."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, str)
+            if not data.endswith(suffix):
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"String must end with {suffix!r}",
+                        code="invalid_string",
+                    )
+                ]
+            return []
+
+        return self._add_rule("endswith", check)  # type: ignore[return-value]
+
+    def one_of(self, *values: str) -> StringSchema:
+        """Require the string to be one of the given values."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, str)
+            if data not in values:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"String must be one of {values!r}",
+                        code="invalid_choice",
+                    )
+                ]
+            return []
+
+        return self._add_rule("one_of", check)  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +297,8 @@ class IntSchema(Schema):
         return []
 
     def min(self, n: int) -> IntSchema:
+        """Require the integer to be >= ``n``."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, int)
             if data < n:
@@ -197,6 +310,8 @@ class IntSchema(Schema):
         return self._add_rule("min", check)  # type: ignore[return-value]
 
     def max(self, n: int) -> IntSchema:
+        """Require the integer to be <= ``n``."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, int)
             if data > n:
@@ -208,6 +323,8 @@ class IntSchema(Schema):
         return self._add_rule("max", check)  # type: ignore[return-value]
 
     def positive(self) -> IntSchema:
+        """Require the integer to be > 0."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, int)
             if data <= 0:
@@ -219,6 +336,8 @@ class IntSchema(Schema):
         return self._add_rule("positive", check)  # type: ignore[return-value]
 
     def negative(self) -> IntSchema:
+        """Require the integer to be < 0."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, int)
             if data >= 0:
@@ -228,6 +347,40 @@ class IntSchema(Schema):
             return []
 
         return self._add_rule("negative", check)  # type: ignore[return-value]
+
+    def multiple_of(self, n: int) -> IntSchema:
+        """Require the integer to be divisible by ``n``."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, int)
+            if n == 0 or data % n != 0:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"Number must be a multiple of {n}",
+                        code="invalid_number",
+                    )
+                ]
+            return []
+
+        return self._add_rule("multiple_of", check)  # type: ignore[return-value]
+
+    def one_of(self, *values: int) -> IntSchema:
+        """Require the integer to be one of the given values."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, int)
+            if data not in values:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"Number must be one of {values!r}",
+                        code="invalid_choice",
+                    )
+                ]
+            return []
+
+        return self._add_rule("one_of", check)  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +397,8 @@ class NumberSchema(Schema):
         return []
 
     def min(self, n: float) -> NumberSchema:
+        """Require the number to be >= ``n``."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, (int, float))
             if data < n:
@@ -255,6 +410,8 @@ class NumberSchema(Schema):
         return self._add_rule("min", check)  # type: ignore[return-value]
 
     def max(self, n: float) -> NumberSchema:
+        """Require the number to be <= ``n``."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, (int, float))
             if data > n:
@@ -266,6 +423,8 @@ class NumberSchema(Schema):
         return self._add_rule("max", check)  # type: ignore[return-value]
 
     def positive(self) -> NumberSchema:
+        """Require the number to be > 0."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, (int, float))
             if data <= 0:
@@ -275,6 +434,53 @@ class NumberSchema(Schema):
             return []
 
         return self._add_rule("positive", check)  # type: ignore[return-value]
+
+    def negative(self) -> NumberSchema:
+        """Require the number to be < 0."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, (int, float))
+            if data >= 0:
+                return [
+                    ValidationError(path=path, message="Number must be negative", code="too_big")
+                ]
+            return []
+
+        return self._add_rule("negative", check)  # type: ignore[return-value]
+
+    def multiple_of(self, n: float) -> NumberSchema:
+        """Require the number to be a multiple of ``n``."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, (int, float))
+            if n == 0 or data % n != 0:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"Number must be a multiple of {n}",
+                        code="invalid_number",
+                    )
+                ]
+            return []
+
+        return self._add_rule("multiple_of", check)  # type: ignore[return-value]
+
+    def one_of(self, *values: float) -> NumberSchema:
+        """Require the number to be one of the given values."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, (int, float))
+            if data not in values:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"Number must be one of {values!r}",
+                        code="invalid_choice",
+                    )
+                ]
+            return []
+
+        return self._add_rule("one_of", check)  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +515,9 @@ class LiteralSchema(Schema):
         return new
 
     def _validate(self, data: object, path: str) -> list[ValidationError]:
-        if data != self._value:
+        # Exact type + value match: 1 != True and 1 != 1.0 even though
+        # Python's == says otherwise (bool is a subclass of int).
+        if type(data) is not type(self._value) or data != self._value:
             return [
                 ValidationError(
                     path=path,
@@ -347,6 +555,8 @@ class ArraySchema(Schema):
         return errors
 
     def min(self, n: int) -> ArraySchema:
+        """Require the array to have at least ``n`` items."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, list)
             if len(data) < n:
@@ -360,6 +570,8 @@ class ArraySchema(Schema):
         return self._add_rule("min", check)  # type: ignore[return-value]
 
     def max(self, n: int) -> ArraySchema:
+        """Require the array to have at most ``n`` items."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, list)
             if len(data) > n:
@@ -372,7 +584,26 @@ class ArraySchema(Schema):
 
         return self._add_rule("max", check)  # type: ignore[return-value]
 
+    def length(self, n: int) -> ArraySchema:
+        """Require the array to have exactly ``n`` items."""
+
+        def check(data: object, path: str) -> list[ValidationError]:
+            assert isinstance(data, list)
+            if len(data) != n:
+                return [
+                    ValidationError(
+                        path=path,
+                        message=f"Array must have exactly {n} items",
+                        code="invalid_length",
+                    )
+                ]
+            return []
+
+        return self._add_rule("length", check)  # type: ignore[return-value]
+
     def nonempty(self) -> ArraySchema:
+        """Require the array to be non-empty."""
+
         def check(data: object, path: str) -> list[ValidationError]:
             assert isinstance(data, list)
             if len(data) == 0:
