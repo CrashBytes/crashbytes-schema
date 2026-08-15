@@ -23,6 +23,22 @@ class TestLiteral:
         with pytest.raises(SchemaError):
             s.literal("1").parse(1)
 
+    def test_int_literal_rejects_bool(self) -> None:
+        # True == 1 in Python, but a literal must match type exactly
+        with pytest.raises(SchemaError):
+            s.literal(1).parse(True)
+
+    def test_bool_literal_rejects_int(self) -> None:
+        with pytest.raises(SchemaError):
+            s.literal(True).parse(1)
+
+    def test_int_literal_rejects_float(self) -> None:
+        with pytest.raises(SchemaError):
+            s.literal(1).parse(1.0)
+
+    def test_none_literal(self) -> None:
+        assert s.literal(None).parse(None) is None
+
 
 class TestUnion:
     def test_matches_first(self) -> None:

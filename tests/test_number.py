@@ -72,6 +72,40 @@ class TestIntNegative:
             s.integer().negative().parse(1)
 
 
+class TestIntMultipleOf:
+    def test_multiple(self) -> None:
+        assert s.integer().multiple_of(5).parse(15) == 15
+
+    def test_not_multiple(self) -> None:
+        with pytest.raises(SchemaError):
+            s.integer().multiple_of(5).parse(12)
+
+    def test_zero_is_multiple_of_anything(self) -> None:
+        assert s.integer().multiple_of(7).parse(0) == 0
+
+    def test_negative_multiple(self) -> None:
+        assert s.integer().multiple_of(3).parse(-9) == -9
+
+    def test_invalid_number_code(self) -> None:
+        with pytest.raises(SchemaError) as exc_info:
+            s.integer().multiple_of(2).parse(3)
+        assert any(e.code == "invalid_number" for e in exc_info.value.errors)
+
+
+class TestIntOneOf:
+    def test_matching_value(self) -> None:
+        assert s.integer().one_of(1, 2, 3).parse(2) == 2
+
+    def test_non_matching_value(self) -> None:
+        with pytest.raises(SchemaError):
+            s.integer().one_of(1, 2, 3).parse(4)
+
+    def test_invalid_choice_code(self) -> None:
+        with pytest.raises(SchemaError) as exc_info:
+            s.integer().one_of(1, 2).parse(9)
+        assert any(e.code == "invalid_choice" for e in exc_info.value.errors)
+
+
 class TestNumberBasic:
     def test_valid_float(self) -> None:
         assert s.number().parse(3.14) == 3.14
@@ -113,6 +147,37 @@ class TestNumberPositive:
     def test_zero_not_positive(self) -> None:
         with pytest.raises(SchemaError):
             s.number().positive().parse(0)
+
+
+class TestNumberNegative:
+    def test_negative_float(self) -> None:
+        assert s.number().negative().parse(-3.5) == -3.5
+
+    def test_zero_not_negative(self) -> None:
+        with pytest.raises(SchemaError):
+            s.number().negative().parse(0)
+
+    def test_positive_not_negative(self) -> None:
+        with pytest.raises(SchemaError):
+            s.number().negative().parse(1)
+
+
+class TestNumberMultipleOf:
+    def test_multiple(self) -> None:
+        assert s.number().multiple_of(0.5).parse(2.5) == 2.5
+
+    def test_not_multiple(self) -> None:
+        with pytest.raises(SchemaError):
+            s.number().multiple_of(0.5).parse(1.3)
+
+
+class TestNumberOneOf:
+    def test_matching_value(self) -> None:
+        assert s.number().one_of(0.5, 1.0).parse(1.0) == 1.0
+
+    def test_non_matching_value(self) -> None:
+        with pytest.raises(SchemaError):
+            s.number().one_of(0.5, 1.0).parse(2.5)
 
 
 class TestNumberChaining:

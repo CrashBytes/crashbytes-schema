@@ -64,6 +64,26 @@ class TestArrayNonempty:
             schema.parse([])
 
 
+class TestArrayLength:
+    def test_exact_length(self) -> None:
+        schema = s.array(s.integer()).length(3)
+        assert schema.parse([1, 2, 3]) == [1, 2, 3]
+
+    def test_too_few_items(self) -> None:
+        schema = s.array(s.integer()).length(3)
+        with pytest.raises(SchemaError):
+            schema.parse([1])
+
+    def test_too_many_items(self) -> None:
+        schema = s.array(s.integer()).length(2)
+        with pytest.raises(SchemaError):
+            schema.parse([1, 2, 3])
+
+    def test_zero_length(self) -> None:
+        schema = s.array(s.integer()).length(0)
+        assert schema.parse([]) == []
+
+
 class TestArrayNested:
     def test_array_of_objects(self) -> None:
         schema = s.array(s.object({"id": s.integer()}))

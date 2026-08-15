@@ -15,6 +15,8 @@ from crashbytes_schema._schemas import (
     UnionSchema,
 )
 
+__version__ = "1.1.0"
+
 s = SchemaBuilder()
 
 __all__ = [
@@ -32,5 +34,6 @@ __all__ = [
     "StringSchema",
     "UnionSchema",
     "ValidationError",
+    "__version__",
     "s",
 ]

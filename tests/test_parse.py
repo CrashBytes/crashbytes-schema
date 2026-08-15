@@ -40,6 +40,30 @@ class TestSafeParse:
         assert result.success is False
 
 
+class TestIsValid:
+    def test_valid_string(self) -> None:
+        assert s.string().is_valid("hello") is True
+
+    def test_invalid_string(self) -> None:
+        assert s.string().is_valid(42) is False
+
+    def test_with_rules(self) -> None:
+        schema = s.string().min(2).max(5)
+        assert schema.is_valid("abc") is True
+        assert schema.is_valid("a") is False
+        assert schema.is_valid("abcdef") is False
+
+    def test_email_rule(self) -> None:
+        assert s.string().email().is_valid("user@example.com") is True
+        assert s.string().email().is_valid("nope") is False
+
+    def test_object_schema(self) -> None:
+        schema = s.object({"age": s.integer().min(18)})
+        assert schema.is_valid({"age": 30}) is True
+        assert schema.is_valid({"age": 12}) is False
+        assert schema.is_valid({"age": "old"}) is False
+
+
 class TestErrorPaths:
     def test_root_path(self) -> None:
         result = s.string().safe_parse(42)
