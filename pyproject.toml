@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "crashbytes-schema"
-version = "1.0.6"
+version = "1.0.7"
 description = "Zero-dependency schema validation for Python — define, parse, and validate data with chainable rules."
 readme = "README.md"
 license = "MIT"
